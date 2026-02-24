@@ -328,6 +328,15 @@
                 header: true,
                 skipEmptyLines: true,
                 encoding: 'utf-8',
+                beforeFirstChunk: (chunk) => {
+                    // Skip the "Totals" summary section at the top
+                    const lines = chunk.split('\n');
+                    const dataStartIndex = lines.findIndex(line => line.startsWith('Item name'));
+                    if (dataStartIndex > 0) {
+                        return lines.slice(dataStartIndex).join('\n');
+                    }
+                    return chunk;
+                },
                 complete: (results) => {
                     console.log('Parse complete:', results);
                     
@@ -344,7 +353,9 @@
                     console.log('Columns:', Object.keys(results.data[0]));
 
                     jobberExpenses = results.data.map((row, idx) => {
-                        const amount = parseFloat(row['Total $'] || row['Total'] || row.Amount || row.amount || 0);
+                        // Handle amounts with commas like "2,573.35"
+                        const amountStr = (row['Total $'] || row['Total'] || row.Amount || row.amount || '0').replace(/,/g, '');
+                        const amount = parseFloat(amountStr);
                         return {
                             _index: idx,
                             item: row['Item name'] || row.Item || row.item || row.Description || '',
