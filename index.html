@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Jobber Expense Reconciliation - Smart Match</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        * { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background: #f8fafc; min-height: 100vh; padding-bottom: 80px; }
+        .card { background: white; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.05); }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; transition: all 0.2s; }
+        .btn-primary:active { transform: scale(0.98); }
+        .match-exact { border-left: 4px solid #22c55e; background: linear-gradient(90deg, #f0fdf4 0%, #fff 100%); }
+        .match-high { border-left: 4px solid #84cc16; background: linear-gradient(90deg, #f7fee7 0%, #fff 100%); }
+        .match-medium { border-left: 4px solid #eab308; background: linear-gradient(90deg, #fefce8 0%, #fff 100%); }
+        .match-low { border-left: 4px solid #f97316; background: linear-gradient(90deg, #fff7ed 0%, #fff 100%); }
+        .match-none { border-left: 4px solid #ef4444; background: linear-gradient(90deg, #fef2f2 0%, #fff 100%); }
+        .sms-btn { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s; }
+        .sms-btn:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3); }
+        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 1px solid #e2e8f0; padding: 8px 0; display: flex; justify-content: space-around; z-index: 40; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 16px; color: #94a3b8; font-size: 11px; transition: color 0.2s; }
+        .nav-item.active { color: #667eea; }
+        .section { display: none; }
+        .section.active { display: block; }
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
+        .modal.active { display: flex; }
+        .modal-content { background: white; border-radius: 20px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+        .upload-zone { border: 2px dashed #cbd5e1; border-radius: 12px; padding: 24px; text-align: center; transition: all 0.2s; }
+        .upload-zone:hover { border-color: #667eea; background: #eff6ff; }
+        .progress-bar { height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); transition: width 0.3s; }
+    </style>
+</head>
+<body>
+    <header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b">
+        <div class="max-w-5xl mx-auto px-4 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white">
+                        <i class="fas fa-file-invoice-dollar text-lg"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-gray-800 text-lg">Smart Reconcile</h1>
+                        <p class="text-xs text-gray-500" id="header-subtitle">Upload to begin</p>
+                    </div>
+                </div>
+                <button onclick="exportUnmatched()" class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-600" title="Export Unmatched CSV">
+                    <i class="fas fa-download"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 py-6">
+        <section id="dashboard-section" class="section active">
+            <div class="grid gap-4 mb-6">
+                <div class="card p-5">
+                    <div class="flex items-start gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                            <i class="fas fa-university text-xl"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="font-semibold text-gray-800">Bank Transactions</h3>
+                            <p class="text-sm text-gray-500 mt-1">Upload CSV or PDF statements</p>
+                            <div id="bank-upload-zone" class="upload-zone mt-3 cursor-pointer" onclick="document.getElementById('bank-file').click()">
+                                <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+                                <p class="text-sm font-medium text-gray-600">Click or drag files here</p>
+                                <p class="text-xs text-gray-400 mt-1">Supports: CSV, PDF</p>
+                            </div>
+                            <input type="file" id="bank-file" class="hidden" accept=".csv,.pdf" multiple onchange="handleBankFiles(this)">
+                            <div id="bank-status" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card p-5">
+                    <div class="flex items-start gap-4">
+                        <div class="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center text-green-600">
+                            <i class="fas fa-receipt text-xl"></i>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="font-semibold text-gray-800">Jobber Expenses</h3>
+                            <p class="text-sm text-gray-500 mt-1">Upload expense report CSV</p>
+                            <div id="jobber-upload-zone" class="upload-zone mt-3 cursor-pointer" onclick="document.getElementById('jobber-file').click()">
+                                <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
+                                <p class="text-sm font-medium text-gray-600">Click or drag CSV here</p>
+                            </div>
+                            <input type="file" id="jobber-file" class="hidden" accept=".csv" onchange="handleJobberFile(this)">
+                            <div id="jobber-status" class="mt-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="stats-container" class="hidden">
+                <div class="card p-5 mb-6">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="text-center p-4 bg-blue-50 rounded-xl">
+                            <p class="text-2xl font-bold text-blue-600" id="stat-bank">0</p>
+                            <p class="text-xs text-gray-600">Bank TXNs</p>
+                        </div>
+                        <div class="text-center p-4 bg-green-50 rounded-xl">
+                            <p class="text-2xl font-bold text-green-600" id="stat-jobber">0</p>
+                            <p class="text-xs text-gray-600">Jobber Receipts</p>
+                        </div>
+                        <div class="text-center p-4 bg-purple-50 rounded-xl">
+                            <p class="text-2xl font-bold text-purple-600" id="stat-percent">0%</p>
+                            <p class="text-xs text-gray-600">Matched</p>
+                        </div>
+                        <div class="text-center p-4 bg-red-50 rounded-xl cursor-pointer" onclick="showSection('transactions'); setFilter('unmatched')">
+                            <p class="text-2xl font-bold text-red-600" id="stat-unmatched">0</p>
+                            <p class="text-xs text-gray-600">Missing</p>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="runSmartReconciliation()" class="w-full btn-primary py-4 rounded-xl font-semibold mb-6">
+                    <i class="fas fa-brain mr-2"></i>Run Smart Matching
+                </button>
+            </div>
+        </section>
+
+        <section id="transactions-section" class="section">
+            <div class="card p-4 mb-4 sticky top-20 z-20">
+                <div class="flex flex-wrap gap-2 mb-3">
+                    <button onclick="setFilter('all')" class="filter-btn active px-4 py-2 rounded-full text-sm font-medium bg-blue-600 text-white" data-filter="all">All</button>
+                    <button onclick="setFilter('exact')" class="filter-btn px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-600" data-filter="exact">✓ Exact</button>
+                    <button onclick="setFilter('partial')" class="filter-btn px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-600" data-filter="partial">~ Partial</button>
+                    <button onclick="setFilter('unmatched')" class="filter-btn px-4 py-2 rounded-full text-sm font-medium bg-gray-100 text-gray-600" data-filter="unmatched">✗ Missing</button>
+                </div>
+            </div>
+            <div id="transaction-list" class="space-y-3"></div>
+        </section>
+
+        <section id="employees-section" class="section">
+            <div class="card p-5 mb-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-semibold text-gray-800">Team Directory</h3>
+                        <p class="text-sm text-gray-500">Manage employees for SMS requests</p>
+                    </div>
+                    <button onclick="showAddEmployeeModal()" class="btn-primary w-10 h-10 rounded-full flex items-center justify-center">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="employee-list" class="space-y-3"></div>
+        </section>
+    </main>
+
+    <nav class="bottom-nav">
+        <button onclick="showSection('dashboard')" class="nav-item active" data-section="dashboard">
+            <i class="fas fa-home"></i><span>Home</span>
+        </button>
+        <button onclick="showSection('transactions')" class="nav-item" data-section="transactions">
+            <i class="fas fa-list"></i><span>Matches</span>
+        </button>
+        <button onclick="showSection('employees')" class="nav-item" data-section="employees">
+            <i class="fas fa-users"></i><span>Team</span>
+        </button>
+    </nav>
+
+    <div id="employee-modal" class="modal">
+        <div class="modal-content">
+            <div class="p-5 border-b">
+                <h3 class="font-semibold text-lg">Add Employee</h3>
+            </div>
+            <div class="p-5 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                    <input type="text" id="emp-name" class="w-full border rounded-lg px-3 py-2" placeholder="John Smith">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <input type="tel" id="emp-phone" class="w-full border rounded-lg px-3 py-2" placeholder="+1 (555) 123-4567">
+                </div>
+            </div>
+            <div class="p-5 border-t flex gap-3">
+                <button onclick="closeModal('employee-modal')" class="flex-1 bg-gray-100 py-3 rounded-lg">Cancel</button>
+                <button onclick="saveEmployee()" class="flex-1 btn-primary py-3 rounded-lg">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let bankTransactions = [];
+        let jobberExpenses = [];
+        let matchResults = [];
+        let currentFilter = 'all';
+        let matchedJobberIndices = new Set();
+        
+        let employees = JSON.parse(localStorage.getItem('employees')) || [
+            { id: 1, name: 'Jacob Stephens', phone: '', cardNames: ['JACOB STEPHENS'] },
+            { id: 2, name: 'Jason Chavez Perez', phone: '', cardNames: ['JASON CHAVEZ PEREZ'] },
+            { id: 3, name: 'Petr Karabane', phone: '', cardNames: ['PETR KARABANE'] },
+            { id: 4, name: 'Ernesto Meza', phone: '', cardNames: ['ERNESTO MEZA'] },
+            { id: 5, name: 'Dustin Wooten', phone: '', cardNames: ['DUSTIN WOOOTEN'] },
+        ];
+
+        function showSection(section) {
+            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById(section + '-section').classList.add('active');
+            document.querySelector(`[data-section="${section}"]`).classList.add('active');
+            if (section === 'transactions') renderTransactions();
+            if (section === 'employees') renderEmployees();
+        }
+
+        async function handleBankFiles(input) {
+            const files = Array.from(input.files);
+            if (!files.length) return;
+
+            const statusDiv = document.getElementById('bank-status');
+            statusDiv.innerHTML = `<p class="text-sm text-blue-600"><i class="fas fa-spinner fa-spin mr-2"></i>Processing ${files.length} file(s)...</p>`;
+
+            let allTransactions = [];
+
+            for (let file of files) {
+                try {
+                    if (file.name.toLowerCase().endsWith('.pdf')) {
+                        const txs = await parsePDF(file);
+                        allTransactions = allTransactions.concat(txs);
+                    } else if (file.name.toLowerCase().endsWith('.csv')) {
+                        const txs = await parseCSV(file);
+                        allTransactions = allTransactions.concat(txs);
+                    }
+                } catch (e) {
+                    console.error('Error:', e);
+                }
+            }
+
+            bankTransactions = allTransactions.map((t, idx) => ({...t, _index: idx, _employee: detectEmployee(t)}));
+            statusDiv.innerHTML = `<p class="text-sm text-green-600"><i class="fas fa-check-circle mr-2"></i>Loaded ${allTransactions.length} transactions</p>`;
+            updateDashboard();
+        }
+
+        async function parsePDF(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const transactions = [];
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const text = textContent.items.map(item => item.str).join('\n');
+                const lines = text.split('\n');
+                
+                for (const line of lines) {
+                    const parsed = parseTransactionLine(line);
+                    if (parsed) transactions.push(parsed);
+                }
+            }
+            return transactions;
+        }
+
+        function parseCSV(file) {
+            return new Promise((resolve) => {
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        const transactions = results.data.map(row => ({
+                            date: row.Date || row['Transaction Date'] || '',
+                            merchant: row.Merchant || row.Description || row.Payee || '',
+                            amount: Math.abs(parseFloat(row.Amount || row['Transaction Amount'] || 0)),
+                            raw: row
+                        })).filter(t => t.amount > 0);
+                        resolve(transactions);
+                    }
+                });
+            });
+        }
+
+        function parseTransactionLine(line) {
+            const patterns = [
+                /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})\s+(.+?)\s+([\d,]+\.\d{2})/,
+            ];
+
+            for (const pattern of patterns) {
+                const match = line.match(pattern);
+                if (match) {
+                    return {
+                        date: match[1],
+                        merchant: match[2] || '',
+                        amount: parseFloat((match[3] || '0').replace(/,/g, '')),
+                        raw: line
+                    };
+                }
+            }
+            return null;
+        }
+
+        function detectEmployee(transaction) {
+            const nameField = (transaction.merchant || '').toUpperCase();
+            for (let emp of employees) {
+                for (let cardName of emp.cardNames) {
+                    if (nameField.includes(cardName.toUpperCase())) return emp;
+                }
+            }
+            return null;
+        }
+
+        function handleJobberFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const statusDiv = document.getElementById('jobber-status');
+            statusDiv.innerHTML = `<p class="text-sm text-blue-600"><i class="fas fa-spinner fa-spin mr-2"></i>Processing...</p>`;
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => {
+                    jobberExpenses = results.data.map((row, idx) => ({
+                        _index: idx,
+                        item: row['Item name'] || row.Item || '',
+                        amount: parseFloat(row['Total $'] || row.Amount || 0),
+                        job: row['Job #'] || row.Job || '',
+                        employee: row['Entered by'] || row.Employee || '',
+                        date: row.Date || '',
+                        raw: row
+                    })).filter(e => e.amount > 0);
+
+                    statusDiv.innerHTML = `<p class="text-sm text-green-600"><i class="fas fa-check-circle mr-2"></i>Loaded ${jobberExpenses.length} expenses</p>`;
+                    updateDashboard();
+                }
+            });
+        }
+
+        function updateDashboard() {
+            if (bankTransactions.length === 0) return;
+            document.getElementById('stats-container').classList.remove('hidden');
+            document.getElementById('header-subtitle').textContent = 'Ready to reconcile';
+            document.getElementById('stat-bank').textContent = bankTransactions.length;
+            document.getElementById('stat-jobber').textContent = jobberExpenses.length;
+        }
+
+        // SMART MATCHING
+        function runSmartReconciliation() {
+            matchResults = [];
+            matchedJobberIndices = new Set();
+
+            // Sort by amount for matching
+            const sortedJobber = [...jobberExpenses].map((e, i) => ({...e, originalIndex: i})).sort((a, b) => a.amount - b.amount);
+
+            for (let bankTx of bankTransactions) {
+                let bestMatch = null;
+                let bestScore = 0;
+
+                for (let jobber of sortedJobber) {
+                    if (matchedJobberIndices.has(jobber.originalIndex)) continue;
+
+                    const amountDiff = Math.abs(bankTx.amount - jobber.amount);
+                    const amountScore = amountDiff < 0.01 ? 100 : amountDiff < 1 ? 80 : amountDiff < 5 ? 60 : 0;
+                    
+                    if (amountScore >= 60) {
+                        const totalScore = amountScore;
+                        if (totalScore > bestScore) {
+                            bestScore = totalScore;
+                            bestMatch = jobber;
+                        }
+                    }
+                }
+
+                if (bestMatch && bestScore >= 80) {
+                    matchedJobberIndices.add(bestMatch.originalIndex);
+                }
+
+                matchResults.push({
+                    bankTx,
+                    jobberExp: bestMatch,
+                    score: bestScore,
+                    status: bestScore >= 100 ? 'exact' : bestScore >= 80 ? 'high' : bestScore >= 60 ? 'medium' : 'none'
+                });
+            }
+
+            updateStats();
+            showSection('transactions');
+        }
+
+        function updateStats() {
+            const exact = matchResults.filter(r => r.status === 'exact').length;
+            const high = matchResults.filter(r => r.status === 'high').length;
+            const medium = matchResults.filter(r => r.status === 'medium').length;
+            const none = matchResults.filter(r => r.status === 'none').length;
+            const matched = exact + high;
+            const total = matchResults.length;
+
+            document.getElementById('stat-percent').textContent = total > 0 ? Math.round((matched / total) * 100) + '%' : '0%';
+            document.getElementById('stat-unmatched').textContent = none + medium;
+        }
+
+        function renderTransactions() {
+            const container = document.getElementById('transaction-list');
+            let filtered = matchResults;
+
+            if (currentFilter !== 'all') {
+                filtered = filtered.filter(r => r.status === currentFilter || (currentFilter === 'unmatched' && (r.status === 'none' || r.status === 'medium')));
+            }
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<div class="card p-8 text-center"><p class="text-gray-500">No transactions found</p></div>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(result => {
+                const { bankTx, jobberExp, status } = result;
+                const cssClass = status === 'exact' ? 'match-exact' : status === 'high' ? 'match-high' : status === 'medium' ? 'match-medium' : 'match-none';
+                const statusText = status === 'exact' ? '✓ Exact Match' : status === 'high' ? '~ Close Match' : status === 'medium' ? '? Possible Match' : '✗ Missing Receipt';
+                const emp = bankTx._employee;
+                const hasPhone = emp && emp.phone;
+
+                return `
+                    <div class="card p-4 ${cssClass}">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="font-semibold text-gray-800">${bankTx.merchant || 'Unknown'}</span>
+                                    <span class="text-xs px-2 py-1 rounded-full ${status === 'exact' ? 'bg-green-100 text-green-700' : status === 'high' ? 'bg-lime-100 text-lime-700' : status === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}">${statusText}</span>
+                                </div>
+                                <p class="text-sm text-gray-500">${bankTx.date || '-'} • $${bankTx.amount.toFixed(2)}</p>
+                                ${jobberExp ? `<p class="text-xs text-green-600 mt-1">Matched: ${jobberExp.item} ($${jobberExp.amount.toFixed(2)})</p>` : ''}
+                            </div>
+                            <div class="text-right">
+                                ${status !== 'exact' && hasPhone ? `
+                                    <button onclick="sendSMS('${emp.phone}', '${bankTx.merchant}', '${bankTx.amount}', '${bankTx.date}', '${emp.name}')" class="sms-btn">
+                                        <i class="fas fa-sms"></i> SMS
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function sendSMS(phone, merchant, amount, date, empName) {
+            const message = `Hi ${empName.split(' ')[0]}, I need a receipt for this company card transaction:
+
+Merchant: ${merchant}
+Amount: $${amount}
+Date: ${date || 'N/A'}
+
+Please submit through Jobber or reply with receipt photo. Thanks!`;
+
+            const smsUrl = `sms:${phone}?body=${encodeURIComponent(message)}`;
+            window.open(smsUrl, '_blank');
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.classList.add('bg-gray-100', 'text-gray-600');
+            });
+            document.querySelector(`[data-filter="${filter}"]`).classList.remove('bg-gray-100', 'text-gray-600');
+            document.querySelector(`[data-filter="${filter}"]`).classList.add('bg-blue-600', 'text-white');
+            renderTransactions();
+        }
+
+        function renderEmployees() {
+            const container = document.getElementById('employee-list');
+            container.innerHTML = employees.map(emp => `
+                <div class="card p-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="font-semibold text-gray-800">${emp.name}</p>
+                            <p class="text-sm text-gray-500">${emp.phone || 'No phone'}</p>
+                        </div>
+                        ${emp.phone ? '<span class="text-green-500"><i class="fas fa-check-circle"></i></span>' : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function showAddEmployeeModal() {
+            document.getElementById('employee-modal').classList.add('active');
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+
+        function saveEmployee() {
+            const name = document.getElementById('emp-name').value;
+            const phone = document.getElementById('emp-phone').value;
+            
+            if (!name) return alert('Name required');
+            
+            employees.push({
+                id: Date.now(),
+                name,
+                phone,
+                cardNames: [name.toUpperCase()]
+            });
+            
+            localStorage.setItem('employees', JSON.stringify(employees));
+            closeModal('employee-modal');
+            renderEmployees();
+            
+            document.getElementById('emp-name').value = '';
+            document.getElementById('emp-phone').value = '';
+        }
+
+        function exportUnmatched() {
+            const unmatched = matchResults.filter(r => r.status === 'none' || r.status === 'medium');
+            let csv = 'Merchant,Amount,Date,Employee\n';
+            unmatched.forEach(r => {
+                csv += `"${r.bankTx.merchant}",${r.bankTx.amount},"${r.bankTx.date}","${r.bankTx._employee?.name || ''}"\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `unmatched-${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+        }
+
+        // Initialize
+        renderEmployees();
+    </script>
+</body>
+</html>
