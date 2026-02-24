@@ -86,11 +86,12 @@
                         <div class="flex-1">
                             <h3 class="font-semibold text-gray-800">Jobber Expenses</h3>
                             <p class="text-sm text-gray-500 mt-1">Upload expense report CSV</p>
-                            <div id="jobber-upload-zone" class="upload-zone mt-3 cursor-pointer" onclick="document.getElementById('jobber-file').click()">
+                            <div id="jobber-upload-zone" class="upload-zone mt-3 cursor-pointer border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-green-500 hover:bg-green-50 transition" onclick="document.getElementById('jobber-file').click()">
                                 <i class="fas fa-cloud-upload-alt text-3xl text-gray-400 mb-2"></i>
-                                <p class="text-sm font-medium text-gray-600">Click or drag CSV here</p>
+                                <p class="text-sm font-medium text-gray-600">Click to upload CSV</p>
+                                <p class="text-xs text-gray-400 mt-1">or drag and drop</p>
                             </div>
-                            <input type="file" id="jobber-file" class="hidden" accept=".csv" onchange="handleJobberFile(this)">
+                            <input type="file" id="jobber-file" class="hidden" accept=".csv,.txt" onchange="handleJobberFile(this)">
                             <div id="jobber-status" class="mt-2"></div>
                         </div>
                     </div>
