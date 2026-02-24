@@ -309,33 +309,66 @@
 
         function handleJobberFile(input) {
             const file = input.files[0];
-            if (!file) return;
+            if (!file) {
+                console.error('No file selected');
+                return;
+            }
 
+            console.log('Processing Jobber file:', file.name);
             const statusDiv = document.getElementById('jobber-status');
-            statusDiv.innerHTML = `<p class="text-sm text-blue-600"><i class="fas fa-spinner fa-spin mr-2"></i>Processing...</p>`;
+            statusDiv.innerHTML = `<p class="text-sm text-blue-600"><i class="fas fa-spinner fa-spin mr-2"></i>Processing ${file.name}...</p>`;
+
+            // Check if PapaParse is loaded
+            if (typeof Papa === 'undefined') {
+                statusDiv.innerHTML = `<p class="text-sm text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>Error: CSV parser not loaded. Please refresh.</p>`;
+                return;
+            }
 
             Papa.parse(file, {
                 header: true,
                 skipEmptyLines: true,
+                encoding: 'utf-8',
                 complete: (results) => {
-                    jobberExpenses = results.data.map((row, idx) => ({
-                        _index: idx,
-                        item: row['Item name'] || row.Item || '',
-                        amount: parseFloat(row['Total $'] || row.Amount || 0),
-                        job: row['Job #'] || row.Job || '',
-                        employee: row['Entered by'] || row.Employee || '',
-                        date: row.Date || '',
-                        raw: row
-                    })).filter(e => e.amount > 0);
+                    console.log('Parse complete:', results);
+                    
+                    if (results.errors && results.errors.length > 0) {
+                        console.error('Parse errors:', results.errors);
+                    }
+                    
+                    if (!results.data || results.data.length === 0) {
+                        statusDiv.innerHTML = `<p class="text-sm text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>No data found in file</p>`;
+                        return;
+                    }
 
+                    console.log('First row:', results.data[0]);
+                    console.log('Columns:', Object.keys(results.data[0]));
+
+                    jobberExpenses = results.data.map((row, idx) => {
+                        const amount = parseFloat(row['Total $'] || row['Total'] || row.Amount || row.amount || 0);
+                        return {
+                            _index: idx,
+                            item: row['Item name'] || row.Item || row.item || row.Description || '',
+                            amount: amount,
+                            job: row['Job #'] || row['Job'] || row.Job || row.job || '',
+                            employee: row['Entered by'] || row['Entered By'] || row.Employee || row.employee || '',
+                            date: row.Date || row.date || '',
+                            raw: row
+                        };
+                    }).filter(e => e.amount > 0);
+
+                    console.log('Processed expenses:', jobberExpenses.length);
                     statusDiv.innerHTML = `<p class="text-sm text-green-600"><i class="fas fa-check-circle mr-2"></i>Loaded ${jobberExpenses.length} expenses</p>`;
                     updateDashboard();
+                },
+                error: (error) => {
+                    console.error('Parse error:', error);
+                    statusDiv.innerHTML = `<p class="text-sm text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>Error: ${error.message}</p>`;
                 }
             });
         }
 
         function updateDashboard() {
-            if (bankTransactions.length === 0) return;
+            if (bankTransactions.length === 0 && jobberExpenses.length === 0) return;
             document.getElementById('stats-container').classList.remove('hidden');
             document.getElementById('header-subtitle').textContent = 'Ready to reconcile';
             document.getElementById('stat-bank').textContent = bankTransactions.length;
